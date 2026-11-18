@@ -17,7 +17,7 @@ tiene() { command -v "$1" >/dev/null 2>&1; }
 con_home() { sed "s#__HOME__#$HOME#g" "$1"; }
 copiar_con_home() {  # copia carpeta $1 -> $2 cambiando __HOME__ en los archivos de texto
   mkdir -p "$2"; rsync -a "$1/" "$2/"
-  grep -rlI '__HOME__' "$2" 2>/dev/null | while read -r f; do sed -i.tmp "s#__HOME__#$HOME#g" "$f" && rm -f "$f.tmp"; done
+  { grep -rlI '__HOME__' "$2" 2>/dev/null || true; } | while read -r f; do sed -i.tmp "s#__HOME__#$HOME#g" "$f" && rm -f "$f.tmp"; done
 }
 
 # 0. requisitos
