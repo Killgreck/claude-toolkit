@@ -1,0 +1,2 @@
+#!/bin/bash
+exec /usr/bin/python3 __HOME__/.local/share/claude-accounts/accounts.py "$@"

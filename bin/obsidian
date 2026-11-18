@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec flatpak run --command=/app/obsidian-cli md.obsidian.Obsidian "$@"

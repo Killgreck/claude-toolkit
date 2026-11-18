@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Lanza Claude Code a traves del proxy claude-relevo (si esta vivo).
+# Si el proxy no responde, lanza claude normal. Nunca rompe el uso de Claude.
+CLAUDE="${RELEVO_CLAUDE_BIN:-__HOME__/.local/bin/claude}"
+CFG="${RELEVO_CONFIG_DIR:-$HOME/.config/claude-relevo}"
+
+PUERTO="${RELEVO_PUERTO:-}"
+if [ -z "$PUERTO" ] && [ -r "$CFG/cuentas.json" ]; then
+  PUERTO="$(grep -o '"puerto"[[:space:]]*:[[:space:]]*[0-9]*' "$CFG/cuentas.json" 2>/dev/null | grep -o '[0-9]*$' | head -n1)"
+fi
+PUERTO="${PUERTO:-47800}"
+
+LLAVE=""
+[ -r "$CFG/llave" ] && LLAVE="$(tr -d '[:space:]' < "$CFG/llave")"
+
+if [ -n "$LLAVE" ] && curl -fsS --max-time 2 "http://127.0.0.1:$PUERTO/__relevo/salud" >/dev/null 2>&1; then
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:$PUERTO"
+  # no pisa cabeceras que ya tengas: agrega la llave en otra linea
+  if [ -n "${ANTHROPIC_CUSTOM_HEADERS:-}" ]; then
+    export ANTHROPIC_CUSTOM_HEADERS="${ANTHROPIC_CUSTOM_HEADERS}"$'\n'"x-relevo-llave: $LLAVE"
+  else
+    export ANTHROPIC_CUSTOM_HEADERS="x-relevo-llave: $LLAVE"
+  fi
+  export ENABLE_TOOL_SEARCH=true
+  exec "$CLAUDE" "$@"
+fi
+
+echo "claude-auto: el proxy claude-relevo no responde (puerto $PUERTO); uso claude normal." >&2
+exec "$CLAUDE" "$@"

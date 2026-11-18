@@ -1,0 +1,18 @@
+{
+  "name": "claude-relevo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Proxy local que rota entre cuentas de Claude Code cuando una se queda sin cupo",
+  "scripts": {
+    "check": "tsc --noEmit && eslint .",
+    "test": "node --test test/simulacro.test.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.2",
+    "eslint": "^10.15.0",
+    "typescript": "~6.0.0",
+    "typescript-eslint": "^8.73.0"
+  }
+}

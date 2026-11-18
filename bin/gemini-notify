@@ -1,0 +1,3 @@
+#!/bin/bash
+# Notificación específica para Gemini
+terminal-flash "Gemini ha terminado! Esperando tu feedback..." "cyan"

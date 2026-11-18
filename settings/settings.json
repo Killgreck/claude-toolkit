@@ -1,0 +1,104 @@
+{
+  "env": {
+    "OBSIDIAN_VAULT_PATH": "__HOME__/Obsidian/Palace",
+    "DISABLE_AUTOUPDATER": "1"
+  },
+  "model": "opus",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOME__/mempalace/.claude-plugin/hooks/mempal-stop-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash __HOME__/mempalace/.claude-plugin/hooks/mempal-precompact-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__HOME__/.claude/skills/obsidian-second-brain/hooks/obsidian-bg-agent.sh",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__mempalace__mempalace_add_drawer",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 __HOME__/mempalace-obsidian-bridge/scripts/on_drawer_add.py"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__mempalace__mempalace_kg_add",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 __HOME__/mempalace-obsidian-bridge/scripts/on_kg_add.py"
+          }
+        ]
+      }
+    ]
+  },
+  "enableWorkflows": true,
+  "enabledPlugins": {
+    "taste-skill@taste-skill": true,
+    "ui-ux-pro-max@ui-ux-pro-max-skill": true
+  },
+  "extraKnownMarketplaces": {
+    "taste-skill": {
+      "source": {
+        "source": "github",
+        "repo": "Leonxlnx/taste-skill"
+      }
+    },
+    "ui-ux-pro-max-skill": {
+      "source": {
+        "source": "github",
+        "repo": "nextlevelbuilder/ui-ux-pro-max-skill"
+      }
+    }
+  },
+  "effortLevel": "xhigh",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-fable-5-1": {
+      "effortLevel": "high"
+    }
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
+  "theme": "dark-ansi",
+  "switchModelsOnFlag": false,
+  "agentPushNotifEnabled": true,
+  "mcpServers": {
+    "mempalace": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "mempalace.mcp_server"
+      ]
+    }
+  }
+}

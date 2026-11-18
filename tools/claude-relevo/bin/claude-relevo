@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# CLI de claude-relevo: estado | log | servidor | init
+set -u
+AQUI="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+REPO="$(dirname "$AQUI")"
+NODE="${RELEVO_NODE:-__HOME__/.local/opt/node-v24.21.0-linux-x64/bin/node}"
+if [ "${1:-}" = "servidor" ]; then
+  exec "$NODE" "$REPO/src/relevo.ts"
+fi
+exec "$NODE" "$REPO/src/cli.ts" "$@"

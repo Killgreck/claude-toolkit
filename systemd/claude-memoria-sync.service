@@ -1,0 +1,8 @@
+[Unit]
+Description=Sincroniza la memoria de Claude con el repo privado (y el toolkit publico)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/claude-sync/claude-memoria/sync.sh
+Nice=10

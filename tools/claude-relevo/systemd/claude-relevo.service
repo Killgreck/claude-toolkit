@@ -1,0 +1,14 @@
+[Unit]
+Description=claude-relevo: proxy local que rota entre cuentas de Claude Code
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=__HOME__/.local/opt/node-v24.21.0-linux-x64/bin/node __HOME__/projects/claude-relevo/src/relevo.ts
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

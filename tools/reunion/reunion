@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# reunion: graba y transcribe en vivo una reunion virtual, todo local.
+#   reunion empezar [nombre]   graba audio del PC (otros) + mic (usuario) y transcribe cada 30 s
+#   reunion parar              corta, termina de transcribir y junta el audio en .opus
+#   reunion estado             que hay activo y cuanto atraso lleva la transcripcion
+#   reunion ver [n]            ultimas n lineas de la transcripcion (activa o la ultima)
+#   reunion lista              reuniones guardadas
+# Corta sola cuando la app de la llamada suelta el mic (se colgo) o a las MAX_HORAS.
+# Variables: REUNION_DIR, REUNION_MODELO, REUNION_HILOS, REUNION_CONTEXTO,
+#            REUNION_FUENTE_OTROS, REUNION_FUENTE_MIGUEL, REUNION_MAX_HORAS, REUNION_FIN_SEG
+set -uo pipefail
+
+BASE="${REUNION_DIR:-$HOME/reuniones}"
+AQUI="$(dirname "$(readlink -f "$0")")"
+ACTIVA="$BASE/ACTIVA"
+SEG="${REUNION_SEG:-30}"
+MAX_HORAS="${REUNION_MAX_HORAS:-3}"
+FIN_SEG="${REUNION_FIN_SEG:-60}"
+
+vivo() { [[ -n "${1:-}" ]] && kill -0 "$1" 2>/dev/null; }
+pid() { cat "$1/pid_$2" 2>/dev/null; }
+
+ultima() {
+  if [[ -L "$ACTIVA" ]]; then readlink -f "$ACTIVA"; return; fi
+  ls -1d "$BASE"/20*/ 2>/dev/null | tail -1 | sed 's:/$::'
+}
+
+empezar() {
+  if [[ -L "$ACTIVA" ]]; then
+    echo "Ya hay una reunion activa: $(readlink -f "$ACTIVA")" >&2
+    exit 1
+  fi
+  local nombre d
+  nombre="$(echo "${1:-reunion}" | iconv -f utf-8 -t ascii//TRANSLIT | tr 'A-Z ' 'a-z-' | tr -cd 'a-z0-9_-')"
+  d="$BASE/$(date +%Y-%m-%d_%H%M)_${nombre:-reunion}"
+  mkdir -p "$d" && chmod 700 "$BASE" "$d" || exit 1
+
+  # REUNION_SOLO_VOZ=1: solo el mic (clase o charla en persona), sin el audio del PC.
+  if [[ "${REUNION_SOLO_VOZ:-0}" == 1 ]]; then echo usuario; else echo otros usuario; fi > "$d/pistas"
+  echo "${REUNION_FUENTE_OTROS:-$(pactl get-default-sink).monitor}" > "$d/fuente_otros"
+  echo "${REUNION_FUENTE_MIGUEL:-$(pactl get-default-source)}" > "$d/fuente_miguel"
+  date -Iseconds > "$d/inicio"
+
+  # bash -c + exec deja en pid_* el PID real de ffmpeg (pkill -f se mata solo, se para por PID).
+  for p in $(cat "$d/pistas"); do
+    setsid bash -c 'echo $$ > "$1/pid_$2"; exec ffmpeg -nostdin -hide_banner -loglevel error \
+      -f pulse -i "$(cat "$1/fuente_$2")" -ac 1 -ar 16000 \
+      -f segment -segment_time "$3" -reset_timestamps 1 "$1/$2_%04d.wav"' \
+      _ "$d" "$p" "$SEG" > "$d/ffmpeg_$p.log" 2>&1 < /dev/null &
+  done
+  setsid bash -c 'echo $$ > "$1/pid_transcriber"; exec nice -n 10 python3 -u "$2/transcriber.py" "$1"' \
+    _ "$d" "$AQUI" > "$d/transcriber.log" 2>&1 < /dev/null &
+  # Vigia: corta solo al colgar (ver vigia) o a las MAX_HORAS.
+  setsid bash -c 'echo $$ > "$1/pid_vigia"; exec "$2" _vigia "$1"' \
+    _ "$d" "$AQUI/reunion" > /dev/null 2>&1 < /dev/null &
+  ln -sfn "$d" "$ACTIVA"
+
+  sleep 3
+  local ok=1
+  for p in $(cat "$d/pistas") transcriber; do
+    if ! vivo "$(pid "$d" "$p")"; then
+      echo "ROTO: $p no arranco" >&2
+      ok=0
+    fi
+  done
+  if [[ $ok == 0 ]]; then
+    tail -n 5 "$d"/ffmpeg_*.log "$d/transcriber.log" >&2
+    parar
+    exit 1
+  fi
+  echo "Grabando en $d"
+  grep -qw otros "$d/pistas" && echo "  otros  <- $(cat "$d/fuente_otros")"
+  echo "  usuario <- $(cat "$d/fuente_miguel")"
+  echo "Corta sola ${FIN_SEG} s despues de colgar, o a las ${MAX_HORAS} h."
+}
+
+# Imprime la app que tiene abierto un microfono, sin contar nuestros ffmpeg ni los
+# medidores de volumen (pavucontrol, panel). Falla si no hay ninguna.
+llamada() {
+  local app
+  app="$(pactl -f json list source-outputs 2>/dev/null | jq -r --arg a "$(pid "$1" otros)" --arg b "$(pid "$1" usuario)" '
+    [.[].properties | select(.["stream.monitor"] != "true")
+      | select(.["application.process.id"] != $a and .["application.process.id"] != $b)
+      | .["application.name"] // .["application.process.binary"] // "?"] | first // empty')"
+  [[ -n "$app" ]] && echo "$app"
+}
+
+# Chrome (Meet/Teams) abre el mic al entrar a la llamada y lo suelta al colgar;
+# silenciarse en la llamada no lo suelta. Se corta cuando la app que se vio
+# lleva FIN_SEG sin mic; si nunca se vio llamada, solo corta MAX_HORAS.
+vigia() {
+  local d="$1" fin vista="" sin_desde=0 app
+  fin=$(( $(date +%s) + MAX_HORAS * 3600 ))
+  while (( $(date +%s) < fin )); do
+    sleep 5
+    [[ -e "$d/PARAR" ]] && exit 0
+    if app="$(llamada "$d")"; then
+      [[ -z "$vista" ]] && echo "$(date +%H:%M:%S) llamada: $app tiene el mic" >> "$d/vigia.log"
+      vista="$app"
+      sin_desde=0
+    elif [[ -n "$vista" ]]; then
+      (( sin_desde )) || sin_desde=$(date +%s)
+      if (( $(date +%s) - sin_desde >= FIN_SEG )); then
+        echo "$(date +%H:%M:%S) $vista sin mic desde $(date -d "@$sin_desde" +%H:%M:%S): se colgo, corto" >> "$d/vigia.log"
+        exec "$AQUI/reunion" parar
+      fi
+    fi
+  done
+  echo "$(date +%H:%M:%S) ${MAX_HORAS} h cumplidas, corto" >> "$d/vigia.log"
+  exec "$AQUI/reunion" parar
+}
+
+parar() {
+  local d p i
+  d="$(ultima)"
+  if [[ ! -L "$ACTIVA" || -z "$d" ]]; then
+    echo "No hay reunion activa." >&2
+    exit 1
+  fi
+  for p in otros usuario; do
+    vivo "$(pid "$d" "$p")" && kill -INT "$(pid "$d" "$p")"
+  done
+  for i in $(seq 20); do
+    vivo "$(pid "$d" otros)" || vivo "$(pid "$d" usuario)" || break
+    sleep 0.5
+  done
+  for p in otros usuario; do
+    vivo "$(pid "$d" "$p")" && kill -9 "$(pid "$d" "$p")"
+  done
+  touch "$d/PARAR"
+  # El vigia puede ser quien llama a parar; no matarse a si mismo.
+  if [[ "$(pid "$d" vigia)" != "$$" ]] && vivo "$(pid "$d" vigia)"; then
+    kill "$(pid "$d" vigia)"
+  fi
+  rm -f "$ACTIVA"
+
+  echo "Grabacion parada. Terminando de transcribir..."
+  for i in $(seq 600); do
+    [[ -e "$d/LISTO" ]] && break
+    vivo "$(pid "$d" transcriber)" || break
+    sleep 1
+  done
+  if [[ -e "$d/LISTO" ]]; then
+    echo "Listo: $d"
+    ls -1 "$d" | grep -E '\.(md|opus)$' | sed 's/^/  /'
+    echo "La transcripcion limpia (transcripcion_final.md) sigue en segundo plano; aparece FINAL cuando termina."
+  else
+    echo "La transcripcion no termino, mirar $d/transcriber.log" >&2
+    exit 1
+  fi
+}
+
+estado() {
+  local d
+  if [[ ! -L "$ACTIVA" ]]; then
+    echo "Sin reunion activa. Ultima: $(ultima)"
+    return
+  fi
+  d="$(readlink -f "$ACTIVA")"
+  local grabados hechos
+  grabados=$(ls "$d"/miguel_*.wav 2>/dev/null | wc -l)
+  hechos=$(grep -oE '^[0-9]+' "$d/estado" 2>/dev/null || echo 0)
+  echo "Activa: $d (desde $(cut -c12-16 "$d/inicio"))"
+  for p in $(cat "$d/pistas" 2>/dev/null || echo otros usuario) transcriber; do
+    vivo "$(pid "$d" "$p")" && echo "  $p: vivo" || echo "  $p: MUERTO"
+  done
+  local app
+  if app="$(llamada "$d")"; then
+    echo "  llamada: $app tiene el mic (corta ${FIN_SEG} s despues de que lo suelte)"
+  else
+    echo "  llamada: ninguna app tiene el mic (si ya se colgo, corta en <= ${FIN_SEG} s)"
+  fi
+  # El trozo en curso todavia no se puede transcribir, por eso el -1.
+  echo "  trozos transcritos: $hechos de $((grabados > 0 ? grabados - 1 : 0)) cerrados (atraso $(( (grabados - 1 - hechos) * SEG )) s)"
+  # Volumen del ultimo trozo cerrado: una pista muda casi siempre es fuente equivocada o mic silenciado.
+  local p f db
+  for p in $(cat "$d/pistas" 2>/dev/null || echo otros usuario); do
+    f="$(ls -1 "$d/${p}"_*.wav 2>/dev/null | tail -2 | head -1)"
+    [[ -n "$f" && "$f" != "$(ls -1 "$d/${p}"_*.wav | tail -1)" ]] || continue
+    db="$(ffmpeg -nostdin -hide_banner -i "$f" -af volumedetect -f null - 2>&1 | grep -oP 'max_volume: \K-?[0-9.]+')"
+    if [[ -z "$db" ]] || awk "BEGIN{exit !($db < -50)}"; then
+      echo "  $p: volumen ${db:-?} dB  <-- SILENCIO, revisar fuente o mic"
+    else
+      echo "  $p: volumen ${db} dB, ok"
+    fi
+  done
+}
+
+ver() {
+  local d
+  d="$(ultima)"
+  [[ -n "$d" && -f "$d/transcripcion.md" ]] || { echo "No hay transcripcion." >&2; exit 1; }
+  tail -n "${1:-40}" "$d/transcripcion.md"
+}
+
+case "${1:-}" in
+  empezar|start) shift; empezar "$@" ;;
+  parar|stop) parar ;;
+  estado|status) estado ;;
+  ver|tail) shift; ver "$@" ;;
+  lista|ls) ls -1 "$BASE" 2>/dev/null | grep -v '^ACTIVA$' ;;
+  _vigia) vigia "$2" ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

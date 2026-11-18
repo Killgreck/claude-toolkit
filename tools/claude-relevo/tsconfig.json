@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

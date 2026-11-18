@@ -1,0 +1,45 @@
+#!/bin/bash
+# Mueve una sesión de Claude (mismo ID, historial, subagentes, checkpoints)
+# del perfil personal1 (~/.claude) a otro perfil y la reanuda allí.
+# Uso: claude-mover <session-id> [personal2|empresa]
+# Se niega si la terminal original sigue viva (evita duplicar la sesión).
+set -euo pipefail
+ID="${1:?Uso: claude-mover <session-id> [personal2|empresa]}"
+DEST_NAME="${2:-personal2}"
+SRC="$HOME/.claude"
+DEST="$HOME/.claude-$DEST_NAME"
+[ -d "$DEST" ] || { echo "No existe el perfil $DEST"; exit 1; }
+
+# ¿Sigue viva la terminal original?
+for f in "$SRC"/sessions/*.json; do
+  [ -f "$f" ] || continue
+  pid=$(basename "$f" .json)
+  if grep -q "\"sessionId\":\"$ID\"" "$f" && kill -0 "$pid" 2>/dev/null \
+     && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q claude; then
+    echo "La terminal original (PID $pid) sigue abierta. Ciérrala primero (/exit o Ctrl+C dos veces)."
+    exit 1
+  fi
+done
+
+TRANSCRIPT=$(ls "$SRC"/projects/*/"$ID".jsonl 2>/dev/null | head -1)
+[ -n "$TRANSCRIPT" ] || { echo "No encuentro el historial de $ID"; exit 1; }
+PROJ_DIR=$(dirname "$TRANSCRIPT"); PROJ=$(basename "$PROJ_DIR")
+CWD=$(grep -m1 -oE '"cwd":"[^"]+"' "$TRANSCRIPT" | cut -d'"' -f4)
+mkdir -p "$DEST/projects/$PROJ"
+
+cp -a "$TRANSCRIPT" "$DEST/projects/$PROJ/"
+[ -d "$PROJ_DIR/$ID" ] && cp -a "$PROJ_DIR/$ID" "$DEST/projects/$PROJ/"
+# Memoria del proyecto: solo añade lo que falte, no pisa lo del destino.
+[ -d "$PROJ_DIR/memory" ] && cp -an "$PROJ_DIR/memory" "$DEST/projects/$PROJ/" 2>/dev/null || true
+for d in file-history tasks todos; do
+  for p in "$SRC/$d/$ID"*; do
+    [ -e "$p" ] && { mkdir -p "$DEST/$d"; cp -a "$p" "$DEST/$d/"; }
+  done
+done
+echo "Sesión $ID copiada a $DEST_NAME (proyecto $PROJ). Reanudando en ${CWD:-$PWD}..."
+
+cd "${CWD:-$PWD}"
+MCP=()
+[ -f "$HOME/.local/share/claude-accounts/recovery/work-mcp.json" ] && [[ "$CWD" == __HOME__/work* ]] \
+  && MCP=(--mcp-config "$HOME/.local/share/claude-accounts/recovery/work-mcp.json")
+exec "$HOME/.local/bin/claude-$DEST_NAME" --resume "$ID" --dangerously-skip-permissions "${MCP[@]}"

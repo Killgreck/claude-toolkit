@@ -1,0 +1,3 @@
+#!/bin/bash
+# Notificación específica para Claude Code
+terminal-flash "Claude ha terminado! Esperando tu feedback..." "blue"

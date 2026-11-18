@@ -1,0 +1,53 @@
+{
+  "whatsapp": {
+    "type": "stdio",
+    "command": "__HOME__/.local/bin/uv",
+    "args": [
+      "--directory",
+      "__HOME__/whatsapp-mcp/whatsapp-mcp-server",
+      "run",
+      "main.py"
+    ],
+    "env": {}
+  },
+  "linear": {
+    "type": "http",
+    "url": "https://mcp.linear.app/mcp"
+  },
+  "desktop-control": {
+    "type": "stdio",
+    "command": "node",
+    "args": [
+      "__HOME__/desktop-control-mcp/server.js"
+    ],
+    "env": {}
+  },
+  "google-docs": {
+    "type": "stdio",
+    "command": "__HOME__/.config/workspace-mcp/run.sh",
+    "args": [],
+    "env": {}
+  },
+  "aws-mcp": {
+    "command": "uvx",
+    "args": [
+      "mcp-proxy-for-aws@latest",
+      "https://aws-mcp.us-east-1.api.aws/mcp",
+      "--metadata",
+      "INSTALL_SOURCE=aws-cli"
+    ]
+  },
+  "mempalace": {
+    "type": "stdio",
+    "command": "python",
+    "args": [
+      "-m",
+      "mempalace.mcp_server"
+    ],
+    "env": {}
+  },
+  "canva": {
+    "type": "http",
+    "url": "https://mcp.canva.com/mcp"
+  }
+}
